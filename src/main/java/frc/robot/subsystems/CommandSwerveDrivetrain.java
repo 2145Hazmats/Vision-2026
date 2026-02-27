@@ -10,6 +10,12 @@ import com.ctre.phoenix6.Utils;
 import com.ctre.phoenix6.swerve.SwerveDrivetrainConstants;
 import com.ctre.phoenix6.swerve.SwerveModuleConstants;
 import com.ctre.phoenix6.swerve.SwerveRequest;
+import com.pathplanner.lib.auto.AutoBuilder;
+import com.pathplanner.lib.commands.PathfindingCommand;
+import com.pathplanner.lib.config.RobotConfig;
+import com.pathplanner.lib.controllers.PPHolonomicDriveController;
+import com.pathplanner.lib.path.PathConstraints;
+import com.pathplanner.lib.path.PathPlannerPath;
 
 import edu.wpi.first.math.Matrix;
 import edu.wpi.first.math.geometry.Pose2d;
@@ -18,12 +24,15 @@ import edu.wpi.first.math.numbers.N1;
 import edu.wpi.first.math.numbers.N3;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj.Notifier;
 import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.CommandScheduler;
 import edu.wpi.first.wpilibj2.command.Subsystem;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
-
+import frc.robot.Constants.PathPlannerConstants;
+import frc.robot.Constants.PoseConstants;
 import frc.robot.generated.TunerConstants.TunerSwerveDrivetrain;
 
 /**
@@ -112,112 +121,164 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
     /* The SysId routine to test */
     private SysIdRoutine m_sysIdRoutineToApply = m_sysIdRoutineTranslation;
 
-    /**
-     * Constructs a CTRE SwerveDrivetrain using the specified constants.
-     * <p>
-     * This constructs the underlying hardware devices, so users should not construct
-     * the devices themselves. If they need the devices, they can access them through
-     * getters in the classes.
-     *
-     * @param drivetrainConstants   Drivetrain-wide constants for the swerve drive
-     * @param modules               Constants for each specific module
-     */
-    public CommandSwerveDrivetrain(
-        SwerveDrivetrainConstants drivetrainConstants,
-        SwerveModuleConstants<?, ?, ?>... modules
-    ) {
-        super(drivetrainConstants, modules);
-        if (Utils.isSimulation()) {
-            startSimThread();
+    private PathConstraints pathFindingConstraints;
+    
+        /**
+         * Constructs a CTRE SwerveDrivetrain using the specified constants.
+         * <p>
+         * This constructs the underlying hardware devices, so users should not construct
+         * the devices themselves. If they need the devices, they can access them through
+         * getters in the classes.
+         *
+         * @param drivetrainConstants   Drivetrain-wide constants for the swerve drive
+         * @param modules               Constants for each specific module
+         */
+        public CommandSwerveDrivetrain(
+            SwerveDrivetrainConstants drivetrainConstants,
+            SwerveModuleConstants<?, ?, ?>... modules
+        ) {
+            super(drivetrainConstants, modules);
+            configureAutoBuilder();
+            if (Utils.isSimulation()) {
+                startSimThread();
+            }
         }
-    }
-
-    /**
-     * Constructs a CTRE SwerveDrivetrain using the specified constants.
-     * <p>
-     * This constructs the underlying hardware devices, so users should not construct
-     * the devices themselves. If they need the devices, they can access them through
-     * getters in the classes.
-     *
-     * @param drivetrainConstants     Drivetrain-wide constants for the swerve drive
-     * @param odometryUpdateFrequency The frequency to run the odometry loop. If
-     *                                unspecified or set to 0 Hz, this is 250 Hz on
-     *                                CAN FD, and 100 Hz on CAN 2.0.
-     * @param modules                 Constants for each specific module
-     */
-    public CommandSwerveDrivetrain(
-        SwerveDrivetrainConstants drivetrainConstants,
-        double odometryUpdateFrequency,
-        SwerveModuleConstants<?, ?, ?>... modules
-    ) {
-        super(drivetrainConstants, odometryUpdateFrequency, modules);
-        if (Utils.isSimulation()) {
-            startSimThread();
+    
+        /**
+         * Constructs a CTRE SwerveDrivetrain using the specified constants.
+         * <p>
+         * This constructs the underlying hardware devices, so users should not construct
+         * the devices themselves. If they need the devices, they can access them through
+         * getters in the classes.
+         *
+         * @param drivetrainConstants     Drivetrain-wide constants for the swerve drive
+         * @param odometryUpdateFrequency The frequency to run the odometry loop. If
+         *                                unspecified or set to 0 Hz, this is 250 Hz on
+         *                                CAN FD, and 100 Hz on CAN 2.0.
+         * @param modules                 Constants for each specific module
+         */
+        public CommandSwerveDrivetrain(
+            SwerveDrivetrainConstants drivetrainConstants,
+            double odometryUpdateFrequency,
+            SwerveModuleConstants<?, ?, ?>... modules
+        ) {
+            super(drivetrainConstants, odometryUpdateFrequency, modules);
+            configureAutoBuilder();
+            if (Utils.isSimulation()) {
+                startSimThread();
+            }
         }
-    }
-
-    /**
-     * Constructs a CTRE SwerveDrivetrain using the specified constants.
-     * <p>
-     * This constructs the underlying hardware devices, so users should not construct
-     * the devices themselves. If they need the devices, they can access them through
-     * getters in the classes.
-     *
-     * @param drivetrainConstants       Drivetrain-wide constants for the swerve drive
-     * @param odometryUpdateFrequency   The frequency to run the odometry loop. If
-     *                                  unspecified or set to 0 Hz, this is 250 Hz on
-     *                                  CAN FD, and 100 Hz on CAN 2.0.
-     * @param odometryStandardDeviation The standard deviation for odometry calculation
-     *                                  in the form [x, y, theta]ᵀ, with units in meters
-     *                                  and radians
-     * @param visionStandardDeviation   The standard deviation for vision calculation
-     *                                  in the form [x, y, theta]ᵀ, with units in meters
-     *                                  and radians
-     * @param modules                   Constants for each specific module
-     */
-    public CommandSwerveDrivetrain(
-        SwerveDrivetrainConstants drivetrainConstants,
-        double odometryUpdateFrequency,
-        Matrix<N3, N1> odometryStandardDeviation,
-        Matrix<N3, N1> visionStandardDeviation,
-        SwerveModuleConstants<?, ?, ?>... modules
-    ) {
-        super(drivetrainConstants, odometryUpdateFrequency, odometryStandardDeviation, visionStandardDeviation, modules);
-        if (Utils.isSimulation()) {
-            startSimThread();
+    
+        /**
+         * Constructs a CTRE SwerveDrivetrain using the specified constants.
+         * <p>
+         * This constructs the underlying hardware devices, so users should not construct
+         * the devices themselves. If they need the devices, they can access them through
+         * getters in the classes.
+         *
+         * @param drivetrainConstants       Drivetrain-wide constants for the swerve drive
+         * @param odometryUpdateFrequency   The frequency to run the odometry loop. If
+         *                                  unspecified or set to 0 Hz, this is 250 Hz on
+         *                                  CAN FD, and 100 Hz on CAN 2.0.
+         * @param odometryStandardDeviation The standard deviation for odometry calculation
+         *                                  in the form [x, y, theta]ᵀ, with units in meters
+         *                                  and radians
+         * @param visionStandardDeviation   The standard deviation for vision calculation
+         *                                  in the form [x, y, theta]ᵀ, with units in meters
+         *                                  and radians
+         * @param modules                   Constants for each specific module
+         */
+        public CommandSwerveDrivetrain(
+            SwerveDrivetrainConstants drivetrainConstants,
+            double odometryUpdateFrequency,
+            Matrix<N3, N1> odometryStandardDeviation,
+            Matrix<N3, N1> visionStandardDeviation,
+            SwerveModuleConstants<?, ?, ?>... modules
+        ) {
+            super(drivetrainConstants, odometryUpdateFrequency, odometryStandardDeviation, visionStandardDeviation, modules);
+            configureAutoBuilder();
+            if (Utils.isSimulation()) {
+                startSimThread();
+            }
         }
+    
+        /**
+         * Returns a command that applies the specified control request to this swerve drivetrain.
+         *
+         * @param request Function returning the request to apply
+         * @return Command to run
+         */
+        public Command applyRequest(Supplier<SwerveRequest> request) {
+            return run(() -> this.setControl(request.get()));
+        }
+    
+        /**
+         * Runs the SysId Quasistatic test in the given direction for the routine
+         * specified by {@link #m_sysIdRoutineToApply}.
+         *
+         * @param direction Direction of the SysId Quasistatic test
+         * @return Command to run
+         */
+        public Command sysIdQuasistatic(SysIdRoutine.Direction direction) {
+            return m_sysIdRoutineToApply.quasistatic(direction);
+        }
+    
+        /**
+         * Runs the SysId Dynamic test in the given direction for the routine
+         * specified by {@link #m_sysIdRoutineToApply}.
+         *
+         * @param direction Direction of the SysId Dynamic test
+         * @return Command to run
+         */
+        public Command sysIdDynamic(SysIdRoutine.Direction direction) {
+            return m_sysIdRoutineToApply.dynamic(direction);
+        }
+
+        public void configureAutoBuilder(){
+            RobotConfig config;
+            // Applies generic robot-centric ChassisSpeeds to the drivetrain
+            final SwerveRequest.ApplyRobotSpeeds applyRobotSpeeds = new SwerveRequest.ApplyRobotSpeeds();
+    
+            try {
+                config = RobotConfig.fromGUISettings();
+    
+                AutoBuilder.configure(
+                    () -> getPose2d(), 
+                    this::resetPose,
+                    () -> getState().Speeds,
+                    // Consumer for robot-centric speeds and feedfowards
+                    (speeds, feedforwards) -> setControl( 
+                        applyRobotSpeeds.withSpeeds(speeds)
+                            .withWheelForceFeedforwardsX(feedforwards.robotRelativeForcesXNewtons())
+                            .withWheelForceFeedforwardsY(feedforwards.robotRelativeForcesYNewtons())
+                    ),
+                    new PPHolonomicDriveController(
+                        PathPlannerConstants.TRANSLATIONAL_PID, // Translation PID constants
+                        PathPlannerConstants.ROTATIONAL_PID // Rotation PID constants
+                    ),
+                    config,
+                    // Makes the path mirrored for red alliance. Only set on robot startup
+                    () -> DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red,
+                    this
+                );
+            } catch (Exception e) {
+                DriverStation.reportError("Failed to configure PathPlanner LOOK AT YOUR AUTO BUILDER CONFIGURE METHOD", e.getStackTrace());
+            }
+    
+            pathFindingConstraints = new PathConstraints(
+            PathPlannerConstants.MAX_VELOCITY_MPS,
+            PathPlannerConstants.MAX_ACCELERATION_MPS,
+            PathPlannerConstants.MAX_ANGULAR_VELOCITY_RAD,
+            PathPlannerConstants.MAX_ANGULAR_ACCELERATION_RAD,
+            PathPlannerConstants.NOMINAL_VOLTAGE_VOLTS, 
+            false
+            );
+
+            CommandScheduler.getInstance().schedule(PathfindingCommand.warmupCommand());
     }
 
-    /**
-     * Returns a command that applies the specified control request to this swerve drivetrain.
-     *
-     * @param request Function returning the request to apply
-     * @return Command to run
-     */
-    public Command applyRequest(Supplier<SwerveRequest> request) {
-        return run(() -> this.setControl(request.get()));
-    }
-
-    /**
-     * Runs the SysId Quasistatic test in the given direction for the routine
-     * specified by {@link #m_sysIdRoutineToApply}.
-     *
-     * @param direction Direction of the SysId Quasistatic test
-     * @return Command to run
-     */
-    public Command sysIdQuasistatic(SysIdRoutine.Direction direction) {
-        return m_sysIdRoutineToApply.quasistatic(direction);
-    }
-
-    /**
-     * Runs the SysId Dynamic test in the given direction for the routine
-     * specified by {@link #m_sysIdRoutineToApply}.
-     *
-     * @param direction Direction of the SysId Dynamic test
-     * @return Command to run
-     */
-    public Command sysIdDynamic(SysIdRoutine.Direction direction) {
-        return m_sysIdRoutineToApply.dynamic(direction);
+    public Command driveToAprilTag() {
+        return AutoBuilder.pathfindToPose(PoseConstants.APRIL_TAG_POSE, pathFindingConstraints);
     }
 
     @Override
@@ -239,6 +300,8 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
                 m_hasAppliedOperatorPerspective = true;
             });
         }
+
+        
     }
 
     private void startSimThread() {
@@ -288,6 +351,10 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
         Matrix<N3, N1> visionMeasurementStdDevs
     ) {
         super.addVisionMeasurement(visionRobotPoseMeters, Utils.fpgaToCurrentTime(timestampSeconds), visionMeasurementStdDevs);
+    }
+
+    public Pose2d getPose2d() {
+        return this.getState().Pose;
     }
 
     /**
