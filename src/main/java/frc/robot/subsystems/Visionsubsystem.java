@@ -37,11 +37,14 @@
  import frc.robot.Constants.TurretConstants;
 
  public class Visionsubsystem extends SubsystemBase {
+   private Pose2d currentPose;
+
    private double angleToHub = 0;
    private final Field2d visionField = new Field2d();
+   private final Field2d generalField = new Field2d();
    private CommandSwerveDrivetrain m_drivetrain = null;
    private PIDController pointAtTagController = null ;
-   private PIDController pointAtGeneralController = null ;
+   private PIDController pointAtGeneralController = null;
    private final double RadiusOfToleranceSquare = 0.5;
 
    PhotonCamera cameraLeft = new PhotonCamera("CameraLeft");
@@ -66,8 +69,8 @@
    private EstimatedRobotPose forwardEstimatedRobotPose = null;
 
    private Matrix<N3, N1> curStdDevs;
-   private final Matrix<N3, N1> kSingleTagStdDevs = VecBuilder.fill(1.5, 1.5, 6); //VecBuilder.fill(4, 4, 8); (2 , 2 , 8)
-   private final Matrix<N3, N1> kMultiTagStdDevs = VecBuilder.fill(0.3, 0.3, .75); //0.5,0.5,1
+   private final Matrix<N3, N1> kSingleTagStdDevs = VecBuilder.fill(1.5, 1.5, 6); //1.5, 1.5, 6  VecBuilder.fill(4, 4, 8); (2 , 2 , 8)
+   private final Matrix<N3, N1> kMultiTagStdDevs = VecBuilder.fill(0.1, 0.01, 0.01); //0.3, 0.3, .75   0.5,0.5,1
    /** Creates a new Visionsubsystem. */
    public Visionsubsystem(CommandSwerveDrivetrain drivetrain) {
      m_drivetrain = drivetrain;
@@ -77,6 +80,8 @@
      PhotonVisionConstants.POINT_AT_D);
   
    }
+
+   
    /**
     * Calculates new standard deviations This algorithm is a heuristic that creates dynamic standard
     * deviations based on number of tags, estimation strategy, and distance from the tags.
@@ -84,6 +89,8 @@
     * @param estimatedPose The estimated pose to guess standard deviations for.
     * @param targets All targets in this camera frame
     */
+
+    /*
    private void updateEstimationStdDevs(Optional<EstimatedRobotPose> estimatedPose, List<PhotonTrackedTarget> targets) {
      if (estimatedPose.isEmpty()) { curStdDevs = kSingleTagStdDevs; }
      else {
@@ -110,6 +117,8 @@
        }
      }
    }
+    */
+
    public void addVisionPose2d(Pose2d pose2d, double timestampSeconds) {
      SmartDashboard.putNumber("aVP2d pose2d X", pose2d.getX());
      SmartDashboard.putNumber("aVP2d pose2d Y", pose2d.getY());
@@ -118,11 +127,13 @@
      // Sets trust value for vision measurements
      // charizardsSkateboard.setVisionMeasurementStdDevs(curStdDevs);
      // charizardsSkateboard.addVisionMeasurement(pose2d, timestampSeconds);
-     m_drivetrain.setVisionMeasurementStdDevs(curStdDevs);
+     m_drivetrain.setVisionMeasurementStdDevs(kSingleTagStdDevs);
+     /*
      double xUpperLimitOfTrustBox = m_drivetrain.getState().Pose.getX() + RadiusOfToleranceSquare;
      double xLowerLimitOfTrustBox = m_drivetrain.getState().Pose.getX() - RadiusOfToleranceSquare;
      double yUpperLimitOfTrustBox = m_drivetrain.getState().Pose.getY() + RadiusOfToleranceSquare;
      double yLowerLimitOfTrustBox = m_drivetrain.getState().Pose.getY() - RadiusOfToleranceSquare;
+     
   
      //  SmartDashboard.putNumber("charizardsSkateboard X", charizardsSkateboard.getState().Pose.getX());
      //  SmartDashboard.putNumber("charizardsSkateboard Y", charizardsSkateboard.getState().Pose.getY());
@@ -132,8 +143,11 @@
        m_drivetrain.addVisionMeasurement(pose2d, timestampSeconds);
      } else if(pose2d.getX() >= xLowerLimitOfTrustBox && pose2d.getX() <= xUpperLimitOfTrustBox && pose2d.getY() >= yLowerLimitOfTrustBox && pose2d.getY() <= yUpperLimitOfTrustBox) {
        m_drivetrain.addVisionMeasurement(pose2d, timestampSeconds);
-     }
+     } */
+
+     m_drivetrain.addVisionMeasurement(pose2d, Utils.getCurrentTimeSeconds());
    }
+
    public void CameraTeamColorSwitcher(boolean isBlue) {
      if (isBlue == true) {
        cameraLeft.setPipelineIndex(0);
@@ -144,6 +158,7 @@
        cameraForward.setPipelineIndex(1);
      }
    }
+
    @Override
    public void periodic() {
      // Get camera results
@@ -160,25 +175,25 @@
        if ((leftResult.getTargets().size() == 1 && leftResult.getBestTarget().poseAmbiguity < PhotonVisionConstants.AMBIGUITY_RATIO_CUTOFF) 
        || leftResult.getTargets().size() > 1) {
          leftEstimatedRobotPose = leftPoseEstimator.update(leftResult).get();
-         updateEstimationStdDevs(leftPoseEstimator.update(leftResult), cameraLeft.getAllUnreadResults().get(0).getTargets());
+         //leftEstimatedRobotPose = leftPoseEstimator.estimateCoprocMultiTagPose(leftResult).get();
+         //updateEstimationStdDevs(leftPoseEstimator.update(leftResult), cameraLeft.getAllUnreadResults().get(0).getTargets());
          addVisionPose2d(leftEstimatedRobotPose.estimatedPose.toPose2d(), Utils.getCurrentTimeSeconds());
          visionField.setRobotPose(leftEstimatedRobotPose.estimatedPose.toPose2d());
        }
-       SmartDashboard.putBoolean("leftLatestRobotPose Update", true);
      } catch (Exception e) {
        leftEstimatedRobotPose = null;
-       SmartDashboard.putBoolean("leftLatestRobotPose Update", false);
      }
      // Same thing but for the left camera
      try {
        // Only accepts camera results if they see more than 1 april tag, or if it sees 1 april tag and the poseAmbiguity is low
        // COMMENT OUT THE LINE BELOW THIS AND IT'S CLOSING BRACKETS IF THIS DOESN'T WORK
        if ((forwardResult.getTargets().size() == 1 && forwardResult.getBestTarget().poseAmbiguity 
-       < PhotonVisionConstants.AMBIGUITY_RATIO_CUTOFF) 
+       < PhotonVisionConstants.AMBIGUITY_RATIO_CUTOFF)
        || forwardResult.getTargets().size() > 1) {
          forwardEstimatedRobotPose = forwardPoseEstimator.update(forwardResult).get();
-         updateEstimationStdDevs(forwardPoseEstimator.update(forwardResult), 
-         cameraForward.getAllUnreadResults().get(0).getTargets());
+         //forwardEstimatedRobotPose = forwardPoseEstimator.estimateCoprocMultiTagPose(leftResult).get();
+         //updateEstimationStdDevs(forwardPoseEstimator.update(forwardResult), 
+         //cameraForward.getAllUnreadResults().get(0).getTargets());
          addVisionPose2d(forwardEstimatedRobotPose.estimatedPose.toPose2d(), Utils.getCurrentTimeSeconds());
          visionField.setRobotPose(forwardEstimatedRobotPose.estimatedPose.toPose2d());
        }
@@ -187,7 +202,10 @@
        forwardEstimatedRobotPose = null;
        SmartDashboard.putBoolean("forwardLatestRobotPose Update", false);
      }
-     SmartDashboard.putData("VisionField", visionField);
+     SmartDashboard.putData("Vision Pose Estimation", visionField);
+     generalField.setRobotPose(m_drivetrain.getState().Pose);
+     SmartDashboard.putData("Robot Pose", generalField);
+     
      try {
        SmartDashboard.putNumber("Angle To Hub", Math.toDegrees(calculateAngleToHub()));
        SmartDashboard.putNumber("Angle of Robot", getEstimatedPose().getRotation().getDegrees());
@@ -200,27 +218,30 @@
      return (leftCorners.get(0).x + leftCorners.get(1).x + leftCorners.get(2).x 
      + leftCorners.get(3).x) /4;
    }
+
    public PhotonTrackedTarget getTarget(){
      return forwardTrackedTarget;
    }
+
    public double getPIDControllerOutput() {
      try {
        leftTrackedTarget = leftResult.getBestTarget();
        leftCorners = leftTrackedTarget.getDetectedCorners();
        return pointAtTagController.calculate(calculateCornersAvgX(), 640);
-     } catch(Exception d) {
+     } catch (Exception d) {
        return 0;
      }
   
    }
+
    public double getGenericAngle() {
      return pointAtGeneralController.calculate(m_drivetrain.getState().Pose.getRotation().getDegrees(), 90);
    }
+
    public Pose2d getEstimatedPose() {
-     if(leftEstimatedRobotPose != null && leftResult.hasTargets())
-       return leftEstimatedRobotPose.estimatedPose.toPose2d();
-     return m_drivetrain.getPose2d();
+     return m_drivetrain.getState().Pose;
    }
+
    public double calculateAngleToHub() {
      try {
        var alliance = DriverStation.getAlliance();
@@ -244,6 +265,7 @@
        return angleToHub;
      }
    }
+
    public double[] calculateTurretFieldPosition() {
      // Vector A is the robot position
      double[] a = {getEstimatedPose().getX(), getEstimatedPose().getY()};
